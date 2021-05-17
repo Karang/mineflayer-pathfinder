@@ -442,7 +442,7 @@ function inject (bot) {
       dz = nextPoint.z - p.z
     }
 
-    bot.look(Math.atan2(-dx, -dz), true)
+    bot.look(Math.atan2(-dx, -dz), false)
     bot.setControlState('forward', true)
     bot.setControlState('jump', false)
 
