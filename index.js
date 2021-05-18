@@ -292,9 +292,9 @@ function inject (bot) {
   })
 
   bot.on('chunkColumnLoad', (chunk) => {
-	if (bot.entity.onGround) {  // Do not reset the path while the bot is in the air! It will mess with parkour jumps
+    if (bot.entity.onGround) { // Do not reset the path while the bot is in the air! It will mess with parkour jumps
       resetPath('chunk_loaded', false)
-	}
+    }
   })
 
   function monitorMovement () {
@@ -394,11 +394,11 @@ function inject (bot) {
       if (placingBlock.jump) {
         bot.setControlState('jump', true)
         canPlace = !bot.entity.onGround && placingBlock.y + 2 < (bot.entity.position.y + bot.entity.velocity.y)
-        //canPlace = placingBlock.y + 2 < bot.entity.position.y  // Not really sure which one of these would be better most of the time
+        // canPlace = placingBlock.y + 2 < bot.entity.position.y  // Not really sure which one of these would be better most of the time
       }
       if (canPlace) {
         bot.equip(block, 'hand', function () {
-		  bot.setControlState('sneak', true) // Sneak right before placing
+          bot.setControlState('sneak', true) // Sneak right before placing
           const refBlock = bot.blockAt(new Vec3(placingBlock.x, placingBlock.y, placingBlock.z), false)
           bot.placeBlock(refBlock, new Vec3(placingBlock.dx, placingBlock.dy, placingBlock.dz), function (err) {
             placing = false
@@ -414,14 +414,14 @@ function inject (bot) {
       }
       return
     }
-	bot.setControlState('sneak', false)
-	
+    bot.setControlState('sneak', false)
+
     let dx = nextPoint.x - p.x
     const dy = nextPoint.y - p.y
     let dz = nextPoint.z - p.z
     if (Math.abs(dx) <= 0.35 && Math.abs(dz) <= 0.35 && Math.abs(dy) < 1) {
       // arrived at next point
-	  if(nextPoint.parkour) fullStop() // Intertia from consecutive short-jumps (especially with sprint) causes the bot to miss future nodes
+      if (nextPoint.parkour) fullStop() // Intertia from consecutive short-jumps (especially with sprint) causes the bot to miss future nodes
       lastNodeTime = performance.now()
       path.shift()
       if (path.length === 0) { // done
