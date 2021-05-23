@@ -286,13 +286,15 @@ function inject (bot) {
   }
 
   bot.on('blockUpdate', (oldBlock, newBlock) => {
-    if (isPositionNearPath(oldBlock.position, path) && oldBlock.type !== newBlock.type) {
+    if (bot.entity.onGround && isPositionNearPath(oldBlock.position, path) && oldBlock.type !== newBlock.type) {
       resetPath('block_updated', false)
     }
   })
 
   bot.on('chunkColumnLoad', (chunk) => {
-    resetPath('chunk_loaded', false)
+    if (bot.entity.onGround) { // Do not reset the path while the bot is in the air! It will mess with parkour jumps
+      resetPath('chunk_loaded', false)
+    }
   })
 
   function monitorMovement () {
@@ -374,7 +376,6 @@ function inject (bot) {
       return
     }
     // Handle block placement
-    // TODO: sneak when placing or make sure the block is not interactive
     if (placing || nextPoint.toPlace.length > 0) {
       if (!placing) {
         placing = true
@@ -392,10 +393,12 @@ function inject (bot) {
       let canPlace = true
       if (placingBlock.jump) {
         bot.setControlState('jump', true)
-        canPlace = placingBlock.y + 1 < bot.entity.position.y
+        canPlace = !bot.entity.onGround && placingBlock.y + 2 < (bot.entity.position.y + bot.entity.velocity.y)
+        // canPlace = placingBlock.y + 2 < bot.entity.position.y  // Not really sure which one of these would be better most of the time
       }
       if (canPlace) {
         bot.equip(block, 'hand', function () {
+          bot.setControlState('sneak', true) // Sneak right before placing
           const refBlock = bot.blockAt(new Vec3(placingBlock.x, placingBlock.y, placingBlock.z), false)
           bot.placeBlock(refBlock, new Vec3(placingBlock.dx, placingBlock.dy, placingBlock.dz), function (err) {
             placing = false
@@ -403,8 +406,7 @@ function inject (bot) {
             if (err) {
               resetPath('place_error')
             } else {
-              // Dont release Sneak if the block placement was not successful
-              if (!err) bot.setControlState('sneak', false)
+              bot.setControlState('sneak', false) // Don't release Sneak if the block placement was not successful
               if (bot.LOSWhenPlacingBlocks && placingBlock.returnPos) returningPos = placingBlock.returnPos.clone()
             }
           })
@@ -412,12 +414,14 @@ function inject (bot) {
       }
       return
     }
+    bot.setControlState('sneak', false)
 
     let dx = nextPoint.x - p.x
     const dy = nextPoint.y - p.y
     let dz = nextPoint.z - p.z
     if (Math.abs(dx) <= 0.35 && Math.abs(dz) <= 0.35 && Math.abs(dy) < 1) {
       // arrived at next point
+      if (nextPoint.parkour) fullStop() // Intertia from consecutive short-jumps (especially with sprint) causes the bot to miss future nodes
       lastNodeTime = performance.now()
       path.shift()
       if (path.length === 0) { // done
@@ -438,7 +442,7 @@ function inject (bot) {
       dz = nextPoint.z - p.z
     }
 
-    bot.look(Math.atan2(-dx, -dz), 0)
+    bot.look(Math.atan2(-dx, -dz), false)
     bot.setControlState('forward', true)
     bot.setControlState('jump', false)
 
