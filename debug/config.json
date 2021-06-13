@@ -1,0 +1,11 @@
+{
+  "files":[
+    "./index.js"
+  ],
+  "config":{
+    "const debug =": true,
+    "debug": true,
+    "console.info": false,
+    "console.log": true
+  }
+}

@@ -4,6 +4,7 @@ const AStar = require('./lib/astar')
 const Move = require('./lib/move')
 const Movements = require('./lib/movements')
 const gotoUtil = require('./lib/goto')
+// const debug = require('debug')('pathfinder')
 
 const Vec3 = require('vec3').Vec3
 
@@ -27,6 +28,10 @@ function inject (bot) {
   let placingBlock = null
   let lastNodeTime = performance.now()
   let returningPos = null
+  let resetIsPaused = false
+  let pathNeedsReset = false
+  let waitingPlaceConfirmation = null
+  let forceResetTimer = null
   const physics = new Physics(bot)
 
   bot.pathfinder = {}
@@ -85,6 +90,10 @@ function inject (bot) {
     bot.removeAllListeners('diggingCompleted', detectDiggingStopped)
   }
   function resetPath (reason, clearStates = true) {
+    if (resetIsPaused) return
+    clearTimeout(forceResetTimer)
+    pathNeedsReset = false
+    // debug('Path reset', reason)
     if (path.length > 0) bot.emit('path_reset', reason)
     path = []
     if (digging) {
@@ -226,6 +235,7 @@ function inject (bot) {
   }
 
   function fullStop () {
+    // debug('Fullstop')
     bot.clearControlStates()
 
     // Force horizontal velocity to 0 (otherwise inertia can move us too far)
@@ -242,6 +252,13 @@ function inject (bot) {
     if (Math.abs(bot.entity.position.z - blockZ) > 0.2) { bot.entity.position.z = blockZ }
   }
 
+  /**
+   * Moves the bot to a given edge of a block
+   *
+   * @param {vec3} refBlock Reference block were moving starts
+   * @param {vec3} edge Edge were movement ends
+   * @returns boolean false if still moving true if reached
+   */
   function moveToEdge (refBlock, edge) {
     // If allowed turn instantly should maybe be a bot option
     const allowInstantTurn = false
@@ -272,6 +289,12 @@ function inject (bot) {
     return true
   }
 
+  /**
+   * Centers to bot on a given block so it does not intersect adjacent blocks
+   *
+   * @param {vec3} pos Block pos to move to
+   * @returns boolean false if moving true if reached
+   */
   function moveToBlock (pos) {
     // minDistanceSq = Min distance sqrt to the target pos were the bot is centered enough to place blocks around him
     const minDistanceSq = 0.2 * 0.2
@@ -285,6 +308,32 @@ function inject (bot) {
     return true
   }
 
+  function pausePathReset () {
+    // debug('Path reset paused')
+    resetIsPaused = true
+    if (!forceResetTimer) {
+      forceResetTimer = setTimeout(() => {
+        resetIsPaused = false
+        resetPath()
+      }, 10000)
+    }
+  }
+
+  function allowPathResets () {
+    clearTimeout(forceResetTimer)
+    resetIsPaused = false
+  }
+
+  /**
+   * Checks if two different Vec3 Positions have the same coordinates
+   * @param {Vec3} pos1 vec3 pos1
+   * @param {Vec3} pos2 vec3 pos2
+   * @returns boolean true if pos1 and pos2 have the same coordinates
+   */
+  function isSamePosition (pos1, pos2) {
+    return pos1 && pos2 && pos1?.x === pos2?.x && pos1?.y === pos2?.y && pos1?.z === pos2?.z
+  }
+
   bot.on('blockUpdate', (oldBlock, newBlock) => {
     if (isPositionNearPath(oldBlock.position, path) && oldBlock.type !== newBlock.type) {
       resetPath('block_updated', false)
@@ -296,6 +345,10 @@ function inject (bot) {
   })
 
   function monitorMovement () {
+    if (pathNeedsReset && !resetIsPaused) {
+      resetPath()
+      return
+    }
     // Test freemotion
     if (stateMovements && stateMovements.allowFreeMotion && stateGoal && stateGoal.entity) {
       const target = stateGoal.entity
@@ -379,6 +432,7 @@ function inject (bot) {
       if (!placing) {
         placing = true
         placingBlock = nextPoint.toPlace.shift()
+        // debug('Next block to place', placingBlock)
         fullStop()
       }
       const block = stateMovements.getScaffoldingItem()
@@ -386,8 +440,16 @@ function inject (bot) {
         resetPath('no_scaffolding_blocks')
         return
       }
-      if (bot.pathfinder.LOSWhenPlacingBlocks && placingBlock.y === bot.entity.position.floored().y - 1 && placingBlock.dy === 0) {
-        if (!moveToEdge(new Vec3(placingBlock.x, placingBlock.y, placingBlock.z), new Vec3(placingBlock.dx, 0, placingBlock.dz))) return
+      if (bot.pathfinder.LOSWhenPlacingBlocks) {
+        if (bot.entity.position.distanceTo(placingBlock) > 3) {
+          resetPath('place_block_to_far')
+          return
+        }
+        if (!waitingPlaceConfirmation && !isSamePosition(waitingPlaceConfirmation, placingBlock) && placingBlock.y === bot.entity.position.floored().y - 1 && placingBlock.dy === 0) {
+          pausePathReset()
+          if (!moveToEdge(new Vec3(placingBlock.x, placingBlock.y, placingBlock.z), new Vec3(placingBlock.dx, 0, placingBlock.dz))) return
+          allowPathResets()
+        }
       }
       let canPlace = true
       if (placingBlock.jump) {
@@ -395,17 +457,25 @@ function inject (bot) {
         canPlace = placingBlock.y + 1 < bot.entity.position.y
       }
       if (canPlace) {
+        if (isSamePosition(waitingPlaceConfirmation, placingBlock)) {
+          // debug('Place block blocked already waiting for server confirmation')
+          return
+        }
         bot.equip(block, 'hand', function () {
+          if (isSamePosition(waitingPlaceConfirmation, placingBlock)) return
+          // debug('Placing block', placingBlock)
+          waitingPlaceConfirmation = new Vec3(placingBlock.x, placingBlock.y, placingBlock.z)
           const refBlock = bot.blockAt(new Vec3(placingBlock.x, placingBlock.y, placingBlock.z), false)
           bot.placeBlock(refBlock, new Vec3(placingBlock.dx, placingBlock.dy, placingBlock.dz), function (err) {
+            waitingPlaceConfirmation = null
             placing = false
             lastNodeTime = performance.now()
             if (err) {
               resetPath('place_error')
             } else {
-              // Dont release Sneak if the block placement was not successful
+              // Don't release Sneak if the block placement was not successful
               if (!err) bot.setControlState('sneak', false)
-              if (bot.pathfinder.LOSWhenPlacingBlocks && placingBlock.returnPos) returningPos = placingBlock.returnPos.clone()
+              if (bot.LOSWhenPlacingBlocks && placingBlock.returnPos) returningPos = placingBlock.returnPos.clone()
             }
           })
         })
