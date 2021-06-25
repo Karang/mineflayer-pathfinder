@@ -408,20 +408,20 @@ function inject (bot) {
         bot.setControlState('jump', true)
         canPlace = placingBlock.y + 1 < bot.entity.position.y
       }
+      bot.equip(block, 'hand', () => {})
+      if (!bot.heldItem || bot.heldItem.type !== block.type) return
       if (canPlace) {
-        bot.equip(block, 'hand', function () {
-          const refBlock = bot.blockAt(new Vec3(placingBlock.x, placingBlock.y, placingBlock.z), false)
-          bot.placeBlock(refBlock, new Vec3(placingBlock.dx, placingBlock.dy, placingBlock.dz), function (err) {
-            placing = false
-            lastNodeTime = performance.now()
-            if (err) {
-              resetPath('place_error')
-            } else {
-              // Dont release Sneak if the block placement was not successful
-              if (!err) bot.setControlState('sneak', false)
-              if (bot.pathfinder.LOSWhenPlacingBlocks && placingBlock.returnPos) returningPos = placingBlock.returnPos.clone()
-            }
-          })
+        const refBlock = bot.blockAt(new Vec3(placingBlock.x, placingBlock.y, placingBlock.z), false)
+        bot.placeBlock(refBlock, new Vec3(placingBlock.dx, placingBlock.dy, placingBlock.dz), function (err) {
+          placing = false
+          lastNodeTime = performance.now()
+          if (err) {
+            resetPath('place_error')
+          } else {
+            // Dont release Sneak if the block placement was not successful
+            if (!err) bot.setControlState('sneak', false)
+            if (bot.pathfinder.LOSWhenPlacingBlocks && placingBlock.returnPos) returningPos = placingBlock.returnPos.clone()
+          }
         })
       }
       return
